@@ -1,0 +1,32 @@
+
+// Uploading the needed Grace data 
+var dataset = ee.ImageCollection('NASA/GRACE/MASS_GRIDS/LAND')
+                  .filter(ee.Filter.date('2002-04-01', '2017-01-07'));
+// Assigne the wather thickness as a variable 
+var equivalentWaterThicknessCsr = dataset.select('lwe_thickness_csr','lwe_thickness_gfz','lwe_thickness_jpl');
+var equivalentWaterThicknessCsrVis = {
+  min: -25.0,
+  max: 25.0,
+};
+Map.setCenter(6.746, 46.529, 2);
+Map.addLayer(
+    equivalentWaterThicknessCsr, equivalentWaterThicknessCsrVis,
+    'Equivalent Water Thickness CSR');
+
+// Define the chart and print it to the console.
+var chart = ui.Chart.image.series({
+  imageCollection: equivalentWaterThicknessCsr,
+  region: LBR_INT,
+  reducer: ee.Reducer.mean(),
+})
+
+.setOptions({
+  title: 'Change in Water Storage in LBR',
+  hAxis: {title: 'Date', titleTextStyle: {italic: false, bold: true}},
+  vAxis: {
+    title: 'Change in water storage (cm)',
+    titleTextStyle: {italic: false, bold: true}
+  },
+
+});
+print(chart);
