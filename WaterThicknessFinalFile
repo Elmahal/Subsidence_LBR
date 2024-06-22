@@ -1,0 +1,140 @@
+var geometry = /* color: #d63000 */ee.Geometry.MultiPoint();
+type: MultiPoint
+coordinates: []
+
+//  Tracing water storages changes in Lousiana State.
+
+//  General equation we follow :
+//TWSa = CANa + SWa + SMa + SWEa + GWa 
+//  small a is the anomaly and captial W is the Water Storage.
+// Where T is  Total and C is Canopy ,S is surfac
+
+var roi = [
+    {lat: 30.75, lng: -91.33333333333333}, // Top-left
+    {lat: 30.75, lng: -90.5},              // Top-right
+    {lat: 30.333333333333332, lng: -90.5}, // Bottom-right
+    {lat: 30.333333333333332, lng: -91.33333333333333}  // Bottom-left
+];
+
+// Import all louisiana basins for understanding of water resources
+var  basins = ee.FeatureCollection('USGS/WBD/2017/HUC04'); 
+// Extract the hudrologic units level 4,HUC 04 basins for the Central Valley.
+//var  codes = ['0801', '0802', '0804','0804','0805','0806','0807','0808'];
+var  codes = ['0801', '0802', '0804','0804','0805','0806','0807','0808'];
+var  basin = basins.filter(ee.Filter.inList('huc4', codes)); 
+// Add the basin to the map to show the extent of our analysis.
+print('Number of features in basin:', basin.size());
+Map.centerObject(basin, 6);
+Map.addLayer(basin,
+ { color: 'blue' }, 'Louisiana Basins', true, 0.5);
+ // mapping to cultivated area , where the greater needs for water occurs
+ var landcover = ee.ImageCollection('USDA/NASS/CDL')
+.filter(ee.Filter.date('2019-01-01', '2019-12-31'))
+.select('cultivated');
+Map.addLayer(landcover.first().clip(basin), {}, 'Cropland',
+true,0.5); 
+// jUST FOR TEST BY GIVING THE YELLOW COLOR TO THE CROPLAND[32-40]
+//var landcover = ee.ImageCollection('USDA/NASS/CDL')
+//  .filter(ee.Filter.date('2019-01-01', '2019-12-31'))
+ // .select('cultivated');
+
+// Visualization parameters
+//var vizParams = {
+ // min: 0,   // Minimum value of the data range
+  //max: 1,   // Maximum value of the data range
+ // palette: ['yellow']  // Color used for visualization};
+
+// Add the layer to the map with the visualization parameters
+//Map.addLayer(landcover.first().clip(basin), vizParams, 'Cropland', true, 0.5);
+
+// Load the reservoir location for Louisana
+// Tracking the water thickness 
+var GRACE =
+ee.ImageCollection('NASA/GRACE/MASS_GRIDS/MASCON_CRI');
+// Subset GRACE for liquid water equivalent dataset
+var basinTWSa = GRACE.select('lwe_thickness');
+// Make plot of TWSa for Basin Boundary
+var TWSaChart = ui.Chart.image.series({
+imageCollection: basinTWSa.filter(ee.Filter.date(
+'2003-01-01', '2017-12-31')),
+region: basin,
+reducer: ee.Reducer.mean(),
+})
+.setOptions({
+title: 'TWSa',
+hAxis: {
+format: 'MM-yyyy'
+},
+vAxis: {
+title: 'TWSa (cm)'
+},
+lineWidth: 1,
+});
+print(TWSaChart);
+// Estimate the linear trend
+// Compute Trend for each pixel to map regions of mostchange
+var addVariables = function(image) {
+// Compute time in fractional years since the epoch.
+var date = ee.Date(image.get('system:time_start'));
+var years = date.difference(ee.Date('2003-01-01'),
+'year');
+// Return the image with the added bands.
+return image
+// Add a time band.
+.addBands(ee.Image(years).rename('t').float())
+// Add a constant band.
+.addBands(ee.Image.constant(1));
+};
+var cvTWSa =
+basinTWSa.filterBounds(basin).map(addVariables);
+print(cvTWSa);
+// List of the independent variable names
+var independents = ee.List(['constant', 't']);
+// Name of the dependent variable.
+var dependent = ee.String('lwe_thickness');
+// Compute a linear trend. This will have two bands:'residuals' and
+// a 2x1 band called coefficients (columns are for dependent variables).
+var trend = cvTWSa.select(independents.add(dependent))
+.reduce(ee.Reducer.linearRegression(independents.length(),
+1));
+// Flatten the coefficients into a 2-band image
+var coefficients = trend.select('coefficients')
+.arrayProject([0])
+.arrayFlatten([independents]);
+// Create a layer of the TWSa slope to add to the map
+var slope = coefficients.select('t');
+// Set visualization parameters to represent positive (blue) & negative (red) trends
+var slopeParams = {
+min: -3.5,
+max: 3.5,
+palette: ['red', 'white', 'blue']
+};
+Map.addLayer(slope.clip(basin), slopeParams, 'TWSa Trend',
+true,
+0.75); 
+// Soil moisture calculation
+// Set the time range
+var startDate = '2003-01-01';
+var endDate = '2017-12-31';
+
+// Load GLDAS soil moisture data
+var dataset = ee.ImageCollection('NASA/GLDAS/V021/NOAH/G025/T3H')
+                  .filterDate(startDate, endDate)
+                  .select('SoilMoi0_10cm_inst'); // Updated band name
+
+// Calculate the mean soil moisture over the time period
+var meanSoilMoisture = dataset.mean();
+
+// Set visualization parameters
+var visParams = {
+  min: 0.0,
+  max: 0.4,
+  palette: ['blue', 'green', 'yellow', 'red']
+};
+
+// Add the mean soil moisture layer to the map
+Map.centerObject(basin, 6); // Adjust the zoom level as needed
+Map.addLayer(meanSoilMoisture.clip(basin), visParams, 'Mean Soil Moisture');
+
+// Display the map
+Map;
